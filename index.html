@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meeting Cost Real-time Ticker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 min-h-screen font-sans text-white">
+<div class="max-w-lg mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold text-center text-white mb-1">Meeting Cost Ticker</h1>
+  <p class="text-gray-400 text-center text-sm mb-6">See how much this meeting is costing in real time.</p>
+
+  <!-- Setup -->
+  <div id="setupPanel" class="bg-gray-800 rounded-2xl p-5 mb-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-4">Meeting Setup</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1" for="attendees">Attendees</label>
+        <input id="attendees" type="number" min="1" max="20" value="4" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" aria-label="Number of attendees">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1" for="salary">Avg Hourly Rate ($)</label>
+        <input id="salary" type="number" min="1" step="1" value="75" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" aria-label="Average hourly salary">
+      </div>
+    </div>
+  </div>
+
+  <!-- Cost display -->
+  <div class="text-center mb-8">
+    <div class="text-xs uppercase tracking-widest text-gray-400 mb-2">Total Meeting Cost</div>
+    <div id="costDisplay" class="text-6xl font-mono font-black text-yellow-400 tabular-nums">$0.00</div>
+    <div id="durationDisplay" class="text-gray-400 text-sm mt-2 font-mono">0:00:00</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="flex gap-3 justify-center mb-8">
+    <button id="btnStart" onclick="startMeeting()" class="px-6 py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold text-sm" aria-label="Start meeting timer">Start Meeting</button>
+    <button id="btnPause" onclick="togglePause()" class="px-6 py-3 rounded-xl bg-yellow-600 hover:bg-yellow-700 text-white font-bold text-sm hidden" aria-label="Pause meeting timer">Pause</button>
+    <button id="btnStop" onclick="stopMeeting()" class="px-6 py-3 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold text-sm hidden" aria-label="Stop meeting and log">End Meeting</button>
+    <button id="btnReset" onclick="resetMeeting()" class="px-6 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-bold text-sm" aria-label="Reset meeting timer">Reset</button>
+  </div>
+
+  <!-- Value rating (shown after stop) -->
+  <div id="ratingPanel" class="bg-gray-800 rounded-2xl p-5 mb-6 hidden">
+    <h2 class="text-sm font-semibold text-gray-300 mb-3">Rate this meeting's value:</h2>
+    <div class="flex gap-2 justify-center mb-4" id="ratingStars" role="group" aria-label="Meeting value rating"></div>
+    <button onclick="logMeeting()" class="w-full py-2 rounded-lg bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold text-sm" aria-label="Save meeting to history">Save to History</button>
+  </div>
+
+  <!-- History -->
+  <div class="bg-gray-800 rounded-2xl p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-300">Meeting History</h2>
+      <button onclick="clearHistory()" class="text-xs text-red-400 hover:text-red-300" aria-label="Clear meeting history">Clear</button>
+    </div>
+    <div id="historyList" class="space-y-2 max-h-64 overflow-y-auto"></div>
+  </div>
+</div>
+
+<script>
+const LS_KEY = 'mct_data';
+let startTime = null;
+let pausedElapsed = 0;
+let isPaused = false;
+let isRunning = false;
+let tickInterval = null;
+let lastCost = 0;
+let lastDuration = 0;
+let selectedRating = 0;
+
+function getCostPerSecond() {
+  const attendees = parseInt(document.getElementById('attendees').value) || 1;
+  const hourly = parseFloat(document.getElementById('salary').value) || 0;
+  return (attendees * hourly) / 3600;
+}
+
+function getElapsed() {
+  if (!isRunning && !isPaused) return 0;
+  if (isPaused) return pausedElapsed;
+  return pausedElapsed + (Date.now() - startTime) / 1000;
+}
+
+function formatDuration(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function tick() {
+  const elapsed = getElapsed();
+  const cost = elapsed * getCostPerSecond();
+  document.getElementById('costDisplay').textContent = '$' + cost.toFixed(2);
+  document.getElementById('durationDisplay').textContent = formatDuration(elapsed);
+  lastCost = cost;
+  lastDuration = elapsed;
+}
+
+function startMeeting() {
+  if (isRunning) return;
+  isRunning = true;
+  isPaused = false;
+  pausedElapsed = 0;
+  startTime = Date.now();
+  document.getElementById('btnStart').classList.add('hidden');
+  document.getElementById('btnPause').classList.remove('hidden');
+  document.getElementById('btnStop').classList.remove('hidden');
+  document.getElementById('ratingPanel').classList.add('hidden');
+  tickInterval = setInterval(tick, 100);
+}
+
+function togglePause() {
+  if (!isRunning) return;
+  if (isPaused) {
+    isPaused = false;
+    startTime = Date.now();
+    document.getElementById('btnPause').textContent = 'Pause';
+  } else {
+    isPaused = true;
+    pausedElapsed += (Date.now() - startTime) / 1000;
+    document.getElementById('btnPause').textContent = 'Resume';
+  }
+}
+
+function stopMeeting() {
+  if (!isRunning) return;
+  clearInterval(tickInterval);
+  isRunning = false;
+  if (!isPaused) pausedElapsed += (Date.now() - startTime) / 1000;
+  lastDuration = pausedElapsed;
+  lastCost = lastDuration * getCostPerSecond();
+  document.getElementById('costDisplay').textContent = '$' + lastCost.toFixed(2);
+  document.getElementById('durationDisplay').textContent = formatDuration(lastDuration);
+  document.getElementById('btnPause').classList.add('hidden');
+  document.getElementById('btnStop').classList.add('hidden');
+  document.getElementById('btnStart').classList.remove('hidden');
+  showRatingPanel();
+}
+
+function resetMeeting() {
+  clearInterval(tickInterval);
+  isRunning = false;
+  isPaused = false;
+  pausedElapsed = 0;
+  startTime = null;
+  lastCost = 0;
+  lastDuration = 0;
+  document.getElementById('costDisplay').textContent = '$0.00';
+  document.getElementById('durationDisplay').textContent = '0:00:00';
+  document.getElementById('btnStart').classList.remove('hidden');
+  document.getElementById('btnPause').classList.add('hidden');
+  document.getElementById('btnStop').classList.add('hidden');
+  document.getElementById('ratingPanel').classList.add('hidden');
+}
+
+function showRatingPanel() {
+  selectedRating = 0;
+  const panel = document.getElementById('ratingPanel');
+  panel.classList.remove('hidden');
+  const starsDiv = document.getElementById('ratingStars');
+  starsDiv.innerHTML = '';
+  for (let i = 1; i <= 5; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'text-3xl transition-transform hover:scale-125';
+    btn.textContent = '☆';
+    btn.setAttribute('aria-label', `Rate meeting ${i} out of 5`);
+    btn.dataset.val = i;
+    btn.onclick = () => setRating(i);
+    starsDiv.appendChild(btn);
+  }
+}
+
+function setRating(val) {
+  selectedRating = val;
+  const stars = document.getElementById('ratingStars').children;
+  for (let i = 0; i < stars.length; i++) {
+    stars[i].textContent = i < val ? '★' : '☆';
+    stars[i].className = i < val
+      ? 'text-3xl transition-transform hover:scale-125 text-yellow-400'
+      : 'text-3xl transition-transform hover:scale-125 text-gray-500';
+  }
+}
+
+function logMeeting() {
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch(e) {}
+
+  const attendees = parseInt(document.getElementById('attendees').value) || 1;
+  const hourly = parseFloat(document.getElementById('salary').value) || 0;
+
+  history.unshift({
+    date: new Date().toISOString(),
+    cost: lastCost,
+    duration: Math.round(lastDuration),
+    value: selectedRating,
+    attendees,
+    hourly
+  });
+  if (history.length > 100) history = history.slice(0, 100);
+  localStorage.setItem(LS_KEY, JSON.stringify(history));
+  document.getElementById('ratingPanel').classList.add('hidden');
+  renderHistory();
+}
+
+function clearHistory() {
+  localStorage.removeItem(LS_KEY);
+  renderHistory();
+}
+
+function renderHistory() {
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch(e) {}
+  const list = document.getElementById('historyList');
+  list.innerHTML = '';
+  if (history.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'text-gray-500 text-xs italic';
+    p.textContent = 'No meetings logged yet.';
+    list.appendChild(p);
+    return;
+  }
+  history.forEach(entry => {
+    const d = new Date(entry.date);
+    const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dur = formatDuration(entry.duration);
+    const stars = '★'.repeat(entry.value) + '☆'.repeat(5 - entry.value);
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between bg-gray-700 rounded-lg px-3 py-2 text-xs';
+
+    const left = document.createElement('div');
+    const dateEl = document.createElement('div');
+    dateEl.className = 'text-gray-300';
+    dateEl.textContent = dateStr;
+    const detEl = document.createElement('div');
+    detEl.className = 'text-gray-500';
+    detEl.textContent = entry.attendees + ' people · ' + dur;
+    left.appendChild(dateEl);
+    left.appendChild(detEl);
+
+    const right = document.createElement('div');
+    right.className = 'text-right';
+    const costEl = document.createElement('div');
+    costEl.className = 'text-yellow-400 font-mono font-bold';
+    costEl.textContent = '$' + entry.cost.toFixed(2);
+    const starsEl = document.createElement('div');
+    starsEl.className = 'text-yellow-400';
+    starsEl.textContent = stars;
+    right.appendChild(costEl);
+    right.appendChild(starsEl);
+
+    row.appendChild(left);
+    row.appendChild(right);
+    list.appendChild(row);
+  });
+}
+
+renderHistory();
+</script>
+</body>
+</html>
